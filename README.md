@@ -6,7 +6,10 @@ That combination is supposed to be impossible. Realtime voice models answer inst
 
 This build refuses the trade-off. You talk over Discord push-to-talk, from any device. Ask something simple - instant answer, natural voice, like a person on a call. Give it a real task - it says *"on it"*, keeps chatting with you, and tells you - in its own words, out loud, when the task is done. It feels like one continuous mind. Under the hood it's **three layers glued into a single persona**, and this repo is the blueprint for the glue.
 
-Built on [OpenClaw](https://openclaw.ai). Bring your own API keys, your own tools, and your own name for it (mine is called Isaac, after Asimov).
+**Framework-agnostic on purpose.** What follows is a wiring pattern, not a product. It needs an agent app that gives you a live voice channel, a text channel, subagents that run in parallel, and a memory. [OpenClaw](https://openclaw.ai), [Hermes Agent](https://github.com/NousResearch/hermes-agent) and comparable agent apps all expose those primitives. My build ran on OpenClaw, so the configuration below is written in OpenClaw's dialect: translate the key names, keep the shape. Bring your own API keys, your own tools, and your own name for it (mine is called Isaac, after Asimov).
+
+> **There is a version 2 of this idea: [true-jarvis-2.0](https://github.com/magomed-esendirov/true-jarvis-2.0).**
+> In *this* version the voice decides what counts as a task and forwards it to the brain, which is the single most fragile part of the design (see [Hard-won lessons](#hard-won-lessons)). In 2.0 the brain reads a mirror of the whole conversation and makes that call itself, so nothing can be silently dropped. Same three layers, one wire moved. Read this one first: it is the simpler build, and it is what 2.0 is fixing.
 
 ---
 
@@ -31,7 +34,7 @@ You keep a live human-paced conversation the whole time. The heavy machinery nev
 | **The brain** | Any frontier LLM (I run Grok 4.5) | The orchestrator. Holds the **full memory** and all the tools. Answers quick questions inline; anything that is real *work* it spawns off to a subagent — then keeps orchestrating |
 | **The hands** | Subagents on a frontier model (I run Claude Opus 5, thinking high) | One subagent per task, many in parallel. Each works in its own session and streams into its own Discord thread |
 
-The voice model treats the brain as *its own deeper mind* (via OpenClaw's `openclaw_agent_consult` tool) and is explicitly instructed to never mention backends. The user never meets three agents — there is only one character.
+The voice model treats the brain as *its own deeper mind*, through whatever "ask the agent" tool your framework exposes — in OpenClaw it is `openclaw_agent_consult`, every comparable app has an equivalent — and is explicitly instructed to never mention backends. The user never meets three agents — there is only one character.
 
 ## How a turn flows
 
@@ -101,7 +104,7 @@ Three lifecycles, decoupled on purpose: the **conversation** is realtime and nev
 
 ## Configuration (the parts that matter)
 
-Key names as of OpenClaw 2026.7.1. Fragments, not a full config — adapt to your setup.
+Written in OpenClaw's config dialect, key names as of 2026.7.1. Fragments, not a full config — adapt to your setup. On another agent app the names change and the four decisions do not: which model orchestrates, how many subagents may run at once, which model they run on, and that the voice is told to forward real questions instead of answering them itself.
 
 ```jsonc
 {
@@ -172,7 +175,7 @@ claim something is done unless the consult result says so.
 
 Things that cost me days, so they cost you nothing:
 
-- **Delegation is probabilistic, not guaranteed.** `consultPolicy: "always"` is prompt-level — the realtime model can still decide your command was chit-chat. Targeted instructions (above) + low temperature raise the rate substantially. For the rest, build deterministic safety nets *outside* the model: classify utterances in code, wrap real tasks with explicit spawn instructions, and add a dispatcher that rescues utterances the voice failed to forward.
+- **Delegation is probabilistic, not guaranteed.** `consultPolicy: "always"` is prompt-level — the realtime model can still decide your command was chit-chat. Targeted instructions (above) + low temperature raise the rate substantially. For the rest, build deterministic safety nets *outside* the model: classify utterances in code, wrap real tasks with explicit spawn instructions, and add a dispatcher that rescues utterances the voice failed to forward. **This is the lesson that produced [true-jarvis-2.0](https://github.com/magomed-esendirov/true-jarvis-2.0):** past a certain point the cleaner answer is to stop asking the voice to decide at all — mirror the entire conversation to the brain as text and let the strongest model in the stack judge what is work. That is a change of wiring, not of framework: the mirror is just as buildable on OpenClaw as this dispatcher is on Hermes Agent.
 - **One task = one thread = one subagent.** Piling work into the main conversation makes everything invisible and sequential. Spawning every real task gives you parallelism, a live view of each job, and per-task steering for free.
 - **Speaking is not delivery.** If a task outlives the voice session, the spoken result evaporates. Every result must also land as text, unconditionally — and completion reports must be re-queued if the user talked over them.
 - **Voice sessions degrade quietly.** Realtime sessions get killed and resumed constantly; after enough churn a session can go half-deaf or near-mute while looking healthy in the logs. Detect "user spoke, nothing answered" patterns and recreate the session fresh rather than debugging a haunted one.
@@ -183,7 +186,7 @@ Things that cost me days, so they cost you nothing:
 
 By design — this is the voice+brain+subagents pattern, not my personal assistant:
 
-- No memory system (OpenClaw has one; configure to taste)
+- No memory system (your agent app has one — OpenClaw and Hermes Agent both do; configure to taste)
 - No personal tools (email, documents, messengers, calendars — add your own as skills)
 - No API keys, tokens, or configs with real IDs
 
@@ -191,10 +194,11 @@ Take the pattern, give it your own name, your own voice, and your own hands.
 
 ## Credits
 
-- [OpenClaw](https://openclaw.ai) — the agent framework doing the heavy lifting: channels, sessions, the consult mechanism, subagents, tool plumbing
+- The agent framework doing the heavy lifting: channels, sessions, the consult mechanism, subagents, tool plumbing. This build ran on [OpenClaw](https://openclaw.ai); [Hermes Agent](https://github.com/NousResearch/hermes-agent) and other agent apps expose the same primitives
 - Google **Gemini Live** / OpenAI **GPT Realtime** — the speech-to-speech face
 - xAI **Grok 4.5** — the orchestrator brain in my setup (fully swappable)
 - Anthropic **Claude Opus 5** — the hands doing the actual work
+- [true-jarvis-2.0](https://github.com/magomed-esendirov/true-jarvis-2.0) — the next iteration, with the "is this a task?" decision moved out of the voice and into the brain
 
 ## License
 
